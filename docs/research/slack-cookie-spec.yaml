@@ -1,0 +1,322 @@
+name: slack-cookie
+description: "Slack from the terminal using your own browser session (xoxc token + d cookie), multi-account and offline-capable"
+version: "0.1.0"
+base_url: "https://slack.com/api"
+health_check_path: "/auth.test"
+category: productivity
+
+required_headers:
+  - name: User-Agent
+    value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+# xoxc session token rides in Authorization: Bearer (server accepts this form).
+# The d cookie (Cookie: d=xoxd-...), optional d-s cookie, per-account workspace
+# host, and d->xoxc exchange are hand-wired post-generation in
+# internal/client/slackcookie_headers.go + internal/config/slackcookie_config.go.
+auth:
+  type: bearer_token
+  header: "Authorization"
+  format: "Bearer {token}"
+  env_vars:
+    - SLACK_XOXC_TOKEN
+
+config:
+  format: toml
+  path: "~/.config/slack-cookie/config.toml"
+
+resources:
+  conversations:
+    description: "Channels, DMs, and group DMs"
+    endpoints:
+      list:
+        method: GET
+        path: "/conversations.list"
+        description: "List channels, DMs, and group DMs"
+        params:
+          - name: types
+            type: string
+            default: "public_channel,private_channel,mpim,im"
+            description: "Comma-separated conversation types"
+          - name: exclude_archived
+            type: bool
+            default: true
+            description: "Exclude archived conversations"
+          - name: limit
+            type: int
+            default: 200
+            description: "Max conversations per page (<=1000)"
+          - name: cursor
+            type: string
+            description: "Pagination cursor (next_cursor)"
+        response:
+          type: array
+          item: Conversation
+        pagination:
+          type: cursor
+          cursor_field: cursor
+          has_more_field: response_metadata.next_cursor
+        response_path: channels
+      history:
+        method: GET
+        path: "/conversations.history"
+        description: "Read messages from a conversation"
+        params:
+          - name: channel
+            type: string
+            required: true
+            positional: true
+            description: "Conversation ID (C…/G…/D…)"
+          - name: limit
+            type: int
+            default: 100
+            description: "Max messages per page (<=999)"
+          - name: oldest
+            type: string
+            description: "Only messages after this Unix ts"
+          - name: latest
+            type: string
+            description: "Only messages before this Unix ts"
+          - name: cursor
+            type: string
+            description: "Pagination cursor"
+        response:
+          type: array
+          item: Message
+        pagination:
+          type: cursor
+          cursor_field: cursor
+          has_more_field: response_metadata.next_cursor
+        response_path: messages
+      replies:
+        method: GET
+        path: "/conversations.replies"
+        description: "Read replies in a thread"
+        params:
+          - name: channel
+            type: string
+            required: true
+            positional: true
+            description: "Conversation ID"
+          - name: ts
+            type: string
+            required: true
+            positional: true
+            description: "Parent message timestamp"
+          - name: limit
+            type: int
+            default: 100
+            description: "Max replies per page"
+          - name: cursor
+            type: string
+            description: "Pagination cursor"
+        response:
+          type: array
+          item: Message
+        response_path: messages
+      info:
+        method: GET
+        path: "/conversations.info"
+        description: "Get a conversation's metadata"
+        params:
+          - name: channel
+            type: string
+            required: true
+            positional: true
+            description: "Conversation ID"
+        response:
+          type: object
+          item: Conversation
+        response_path: channel
+      open:
+        method: POST
+        path: "/conversations.open"
+        description: "Open or resume a DM/group DM"
+        body:
+          - name: users
+            type: string
+            description: "Comma-separated user IDs (1-8)"
+          - name: channel
+            type: string
+            description: "Existing conversation ID to resume"
+        response:
+          type: object
+          item: Conversation
+        response_path: channel
+
+  chat:
+    description: "Send messages"
+    endpoints:
+      post:
+        method: POST
+        path: "/chat.postMessage"
+        description: "Send a message to a channel, DM, or thread"
+        body:
+          - name: channel
+            type: string
+            required: true
+            description: "Conversation ID or #channel name"
+          - name: text
+            type: string
+            required: true
+            description: "Message text"
+          - name: thread_ts
+            type: string
+            description: "Parent message ts to reply in a thread"
+        response:
+          type: object
+          item: PostMessageResult
+
+  messages:
+    description: "Live message search"
+    endpoints:
+      search:
+        method: GET
+        path: "/search.messages"
+        description: "Full-text search messages (live API)"
+        params:
+          - name: query
+            type: string
+            required: true
+            positional: true
+            description: "Search query"
+          - name: count
+            type: int
+            default: 20
+            description: "Results per page (<=100)"
+          - name: page
+            type: int
+            default: 1
+            description: "Page number (<=100)"
+          - name: sort
+            type: string
+            default: "score"
+            enum: ["score", "timestamp"]
+            description: "Sort by score or timestamp"
+          - name: sort_dir
+            type: string
+            default: "desc"
+            enum: ["asc", "desc"]
+            description: "Sort direction"
+        response:
+          type: object
+          item: SearchResult
+        response_path: messages
+
+  users:
+    description: "Workspace users"
+    endpoints:
+      list:
+        method: GET
+        path: "/users.list"
+        description: "List workspace users (paginate slowly to avoid token invalidation)"
+        params:
+          - name: limit
+            type: int
+            default: 200
+            description: "Max users per page"
+          - name: cursor
+            type: string
+            description: "Pagination cursor"
+        response:
+          type: array
+          item: User
+        pagination:
+          type: cursor
+          cursor_field: cursor
+          has_more_field: response_metadata.next_cursor
+        response_path: members
+      info:
+        method: GET
+        path: "/users.info"
+        description: "Get a user's profile"
+        params:
+          - name: user
+            type: string
+            required: true
+            positional: true
+            description: "User ID"
+        response:
+          type: object
+          item: User
+        response_path: user
+
+  unreads:
+    description: "Unread counts and state"
+    endpoints:
+      counts:
+        method: POST
+        path: "/client.counts"
+        description: "Unread counts and state for all conversations"
+        response:
+          type: object
+          item: ClientCounts
+
+types:
+  Conversation:
+    fields:
+      - name: id
+        type: string
+      - name: name
+        type: string
+      - name: is_channel
+        type: bool
+      - name: is_private
+        type: bool
+      - name: is_im
+        type: bool
+      - name: is_mpim
+        type: bool
+      - name: is_archived
+        type: bool
+      - name: num_members
+        type: int
+      - name: topic
+        type: string
+      - name: purpose
+        type: string
+  Message:
+    fields:
+      - name: type
+        type: string
+      - name: user
+        type: string
+      - name: text
+        type: string
+      - name: ts
+        type: string
+      - name: thread_ts
+        type: string
+      - name: reply_count
+        type: int
+  PostMessageResult:
+    fields:
+      - name: ok
+        type: bool
+      - name: channel
+        type: string
+      - name: ts
+        type: string
+  SearchResult:
+    fields:
+      - name: total
+        type: int
+      - name: query
+        type: string
+  User:
+    fields:
+      - name: id
+        type: string
+      - name: name
+        type: string
+      - name: real_name
+        type: string
+      - name: is_bot
+        type: bool
+      - name: deleted
+        type: bool
+      - name: tz
+        type: string
+  ClientCounts:
+    fields:
+      - name: ok
+        type: bool

@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-06-29T23:47:28.277764Z",
+  "printing_press_version": "4.27.0",
+  "api_name": "slack-cookie",
+  "display_name": "Slack (cookie auth)",
+  "cli_name": "slack-cookie-pp-cli",
+  "creator": {
+    "handle": "mikefwille",
+    "name": "Mike W"
+  },
+  "owner": "mikefwille",
+  "printer": "mikefwille",
+  "printer_name": "Mike W",
+  "spec_path": "slack-cookie.yaml",
+  "spec_format": "internal",
+  "spec_checksum": "sha256:fb9f65a64f32eec915804ba1134bd40c976deb507f205dd5718b50c3ffb11610",
+  "run_id": "20260629-171901-slackcookie",
+  "category": "productivity",
+  "description": "Drive Slack from the terminal as yourself using your browser session, across all your separate-login workspaces, with offline sync and native Slack AI.",
+  "mcp_binary": "slack-cookie-pp-mcp",
+  "mcp_tool_count": 10,
+  "mcp_ready": "full",
+  "api_version": "0.1.0",
+  "auth_type": "bearer_token",
+  "auth_env_vars": [
+    "SLACK_XOXC_TOKEN"
+  ],
+  "verify": {
+    "mode": "mock",
+    "pass_rate": 100,
+    "passed": 28,
+    "total": 28,
+    "verdict": "PASS"
+  },
+  "scorecard": {
+    "steinberger": {
+      "percentage": 91,
+      "grade": "A",
+      "total": 91
+    }
+  }
+}

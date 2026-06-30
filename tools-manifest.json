@@ -1,0 +1,281 @@
+{
+  "api_name": "slack-cookie",
+  "base_url": "https://slack.com/api",
+  "description": "Drive Slack from the terminal as yourself using your browser session, across all your separate-login workspaces, with offline sync and native Slack AI.",
+  "mcp_ready": "full",
+  "http_transport": "standard",
+  "auth": {
+    "type": "bearer_token",
+    "header": "Authorization",
+    "format": "Bearer {SLACK_XOXC_TOKEN}",
+    "env_vars": [
+      "SLACK_XOXC_TOKEN"
+    ],
+    "env_var_specs": [
+      {
+        "name": "SLACK_XOXC_TOKEN",
+        "kind": "per_call",
+        "required": true,
+        "sensitive": true,
+        "inferred": true
+      }
+    ]
+  },
+  "required_headers": [
+    {
+      "name": "User-Agent",
+      "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    }
+  ],
+  "tools": [
+    {
+      "name": "chat_post",
+      "description": "Send a message to a channel, DM, or thread. Required: channel, text. Optional: thread_ts. Returns the new PostMessageResult.",
+      "method": "POST",
+      "path": "/chat.postMessage",
+      "params": [
+        {
+          "name": "channel",
+          "type": "string",
+          "location": "body",
+          "description": "Conversation ID or #channel name",
+          "required": true
+        },
+        {
+          "name": "text",
+          "type": "string",
+          "location": "body",
+          "description": "Message text",
+          "required": true
+        },
+        {
+          "name": "thread_ts",
+          "type": "string",
+          "location": "body",
+          "description": "Parent message ts to reply in a thread"
+        }
+      ]
+    },
+    {
+      "name": "conversations_history",
+      "description": "Read messages from a conversation. Required: channel. Optional: limit (default: 100), oldest, latest (plus 1 more). Returns array of Message.",
+      "method": "GET",
+      "path": "/conversations.history",
+      "params": [
+        {
+          "name": "channel",
+          "type": "string",
+          "location": "path",
+          "description": "Conversation ID (C…/G…/D…)",
+          "required": true
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "location": "query",
+          "description": "Max messages per page (\u003c=999)"
+        },
+        {
+          "name": "oldest",
+          "type": "string",
+          "location": "query",
+          "description": "Only messages after this Unix ts"
+        },
+        {
+          "name": "latest",
+          "type": "string",
+          "location": "query",
+          "description": "Only messages before this Unix ts"
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "location": "query",
+          "description": "Pagination cursor"
+        }
+      ]
+    },
+    {
+      "name": "conversations_info",
+      "description": "Get a conversation's metadata. Required: channel. Returns the Conversation.",
+      "method": "GET",
+      "path": "/conversations.info",
+      "params": [
+        {
+          "name": "channel",
+          "type": "string",
+          "location": "path",
+          "description": "Conversation ID",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "conversations_list",
+      "description": "List channels, DMs, and group DMs. Optional: types, exclude_archived (default: true), limit (default: 200) (plus 1 more). Returns array of Conversation.",
+      "method": "GET",
+      "path": "/conversations.list",
+      "params": [
+        {
+          "name": "types",
+          "type": "string",
+          "location": "query",
+          "description": "Comma-separated conversation types"
+        },
+        {
+          "name": "exclude_archived",
+          "type": "bool",
+          "location": "query",
+          "description": "Exclude archived conversations"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "location": "query",
+          "description": "Max conversations per page (\u003c=1000)"
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "location": "query",
+          "description": "Pagination cursor (next_cursor)"
+        }
+      ]
+    },
+    {
+      "name": "conversations_open",
+      "description": "Open or resume a DM/group DM. Optional: users, channel. Returns the new Conversation.",
+      "method": "POST",
+      "path": "/conversations.open",
+      "params": [
+        {
+          "name": "users",
+          "type": "string",
+          "location": "body",
+          "description": "Comma-separated user IDs (1-8)"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "location": "body",
+          "description": "Existing conversation ID to resume"
+        }
+      ]
+    },
+    {
+      "name": "conversations_replies",
+      "description": "Read replies in a thread. Required: channel, ts. Optional: limit (default: 100), cursor. Returns array of Message.",
+      "method": "GET",
+      "path": "/conversations.replies",
+      "params": [
+        {
+          "name": "channel",
+          "type": "string",
+          "location": "path",
+          "description": "Conversation ID",
+          "required": true
+        },
+        {
+          "name": "ts",
+          "type": "string",
+          "location": "path",
+          "description": "Parent message timestamp",
+          "required": true
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "location": "query",
+          "description": "Max replies per page"
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "location": "query",
+          "description": "Pagination cursor"
+        }
+      ]
+    },
+    {
+      "name": "messages_search",
+      "description": "Full-text search messages (live API). Required: query. Optional: count (default: 20), page (default: 1), sort (default: score) (plus 1 more). Returns the SearchResult.",
+      "method": "GET",
+      "path": "/search.messages",
+      "params": [
+        {
+          "name": "query",
+          "type": "string",
+          "location": "path",
+          "description": "Search query",
+          "required": true
+        },
+        {
+          "name": "count",
+          "type": "int",
+          "location": "query",
+          "description": "Results per page (\u003c=100)"
+        },
+        {
+          "name": "page",
+          "type": "int",
+          "location": "query",
+          "description": "Page number (\u003c=100)"
+        },
+        {
+          "name": "sort",
+          "type": "string",
+          "location": "query",
+          "description": "Sort by score or timestamp"
+        },
+        {
+          "name": "sort_dir",
+          "type": "string",
+          "location": "query",
+          "description": "Sort direction"
+        }
+      ]
+    },
+    {
+      "name": "unreads_counts",
+      "description": "Unread counts and state for all conversations. Returns the new ClientCounts.",
+      "method": "POST",
+      "path": "/client.counts",
+      "params": []
+    },
+    {
+      "name": "users_info",
+      "description": "Get a user's profile. Required: user. Returns the User.",
+      "method": "GET",
+      "path": "/users.info",
+      "params": [
+        {
+          "name": "user",
+          "type": "string",
+          "location": "path",
+          "description": "User ID",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "users_list",
+      "description": "List workspace users (paginate slowly to avoid token invalidation). Optional: limit (default: 200), cursor. Returns array of User.",
+      "method": "GET",
+      "path": "/users.list",
+      "params": [
+        {
+          "name": "limit",
+          "type": "int",
+          "location": "query",
+          "description": "Max users per page"
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "location": "query",
+          "description": "Pagination cursor"
+        }
+      ]
+    }
+  ]
+}

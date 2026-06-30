@@ -1,0 +1,19 @@
+# Compiled binaries
+/slack-cookie-pp-cli
+/slack-cookie-pp-mcp
+/build/
+/dist/
+
+# Local SQLite mirrors — NEVER commit synced Slack data
+*.db
+*.db-wal
+*.db-shm
+
+# Credentials / config that may hold session secrets
+config.toml
+accounts.toml
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*.out

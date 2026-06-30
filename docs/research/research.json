@@ -1,0 +1,50 @@
+{
+  "api_name": "slack-cookie",
+  "novelty_score": 0,
+  "alternatives": [
+    {"name": "slackdump", "url": "https://github.com/rusq/slackdump", "language": "Go", "stars": 2700, "command_count": 12},
+    {"name": "slack-slurp", "url": "https://github.com/NoF0rte/slack-slurp", "language": "Go", "stars": 0, "command_count": 6},
+    {"name": "slackattack", "url": "https://github.com/fr4nk3nst1ner/slackattack", "language": "Python", "stars": 0, "command_count": 5},
+    {"name": "slack-mcp-server", "url": "https://github.com/korotovsky/slack-mcp-server", "language": "Go", "stars": 0, "command_count": 4}
+  ],
+  "auth": {
+    "canonical_env_var": "SLACK_XOXC_TOKEN"
+  },
+  "narrative": {
+    "display_name": "Slack (cookie auth)",
+    "headline": "Drive Slack from the terminal as yourself using your browser session, across all your separate-login workspaces, with offline sync and native Slack AI.",
+    "value_prop": "Authenticates with your own xoxc session token plus the d cookie, so there's no app to create and no admin approval. Every workspace you're logged into becomes a named account with its own local SQLite mirror, so you can search, catch up, and run cross-workspace digests offline. Includes ai ask, which routes through Slack's own AI assistant.",
+    "auth_narrative": "Uses your logged-in browser session: the xoxc token (Authorization) plus the d cookie. Provide them per account via env vars (SLACK_XOXC_TOKEN, SLACK_D_COOKIE) or `auth login`. The d cookie can be exchanged for a fresh xoxc automatically. Session tokens rotate and can be invalidated by Slack on bursty access, so the CLI syncs to a local mirror and paginates conservatively; run `doctor` to check validity per account.",
+    "quickstart": [
+      {"command": "slack-cookie-pp-cli doctor --dry-run", "comment": "health check, works without auth"},
+      {"command": "slack-cookie-pp-cli conversations list --json", "comment": "list channels and DMs in the active account"},
+      {"command": "slack-cookie-pp-cli search \"q3 planning\" --json", "comment": "search messages"}
+    ],
+    "troubleshoots": [
+      {"symptom": "invalid_auth", "fix": "Your xoxc/d session was invalidated; re-grab the d cookie and run `auth login`, or run `doctor`."},
+      {"symptom": "Rate limited (429)", "fix": "Slow down: rely on `sync` + offline queries instead of repeated live calls; respect Retry-After."}
+    ],
+    "when_to_use": "Use when you want to read, search, send, and catch up on Slack as yourself from the terminal or an agent, especially across multiple separate-login workspaces, without creating a Slack app. Strong for offline/cheap repeated queries via the local mirror and for cross-workspace digests.",
+    "anti_triggers": [
+      "Building a shared bot or integration for a team (use an official Slack app + bot token instead)",
+      "Admin / enterprise-grid workspace management",
+      "Anything requiring OAuth scopes you'd grant to a third party"
+    ],
+    "recipes": [
+      {"title": "Catch up across every workspace", "command": "slack-cookie-pp-cli digest --all-accounts --since 1d", "explanation": "One cross-workspace rollup of what you missed."},
+      {"title": "Ask Slack's AI", "command": "slack-cookie-pp-cli ai ask \"what did I miss in #product today?\"", "explanation": "Routes through Slack's AI assistant and prints the answer."},
+      {"title": "Narrow a verbose response", "command": "slack-cookie-pp-cli conversations list --agent --select id,name,is_private", "explanation": "Bounded, agent-friendly output from a large list."}
+    ],
+    "trigger_phrases": [
+      "send a slack message",
+      "search slack",
+      "what did I miss on slack",
+      "catch me up on slack",
+      "use slack-cookie",
+      "run slack-cookie"
+    ]
+  },
+  "gaps": [],
+  "patterns": [],
+  "recommendation": "proceed"
+}

@@ -1,0 +1,39 @@
+{
+  "manifest_version": "0.3",
+  "name": "slack-cookie-pp-mcp",
+  "display_name": "Slack (cookie auth)",
+  "version": "0.1.0",
+  "description": "Drive Slack from the terminal as yourself using your browser session, across all your separate-login workspaces, with offline sync and native Slack AI.",
+  "author": {
+    "name": "CLI Printing Press"
+  },
+  "license": "Apache-2.0",
+  "server": {
+    "type": "binary",
+    "entry_point": "bin/slack-cookie-pp-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/bin/slack-cookie-pp-mcp",
+      "args": [],
+      "env": {
+        "SLACK_XOXC_TOKEN": "${user_config.slack_xoxc_token}"
+      }
+    }
+  },
+  "user_config": {
+    "slack_xoxc_token": {
+      "type": "string",
+      "title": "SLACK_XOXC_TOKEN",
+      "description": "Sets SLACK_XOXC_TOKEN for the Slack (cookie auth) MCP server.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": [
+      "darwin",
+      "linux",
+      "win32"
+    ]
+  }
+}

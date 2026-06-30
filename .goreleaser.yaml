@@ -1,0 +1,51 @@
+version: 2
+project_name: slack-cookie-pp-cli
+changelog:
+  disable: true
+builds:
+  - id: slack-cookie-pp-cli
+    main: ./cmd/slack-cookie-pp-cli
+    binary: slack-cookie-pp-cli
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X slack-cookie-pp-cli/internal/cli.version={{ .Version }}
+    targets:
+      - darwin_amd64
+      - darwin_arm64
+      - linux_amd64
+      - linux_arm64
+      - windows_amd64
+      - windows_arm64
+  - id: slack-cookie-pp-mcp
+    main: ./cmd/slack-cookie-pp-mcp
+    binary: slack-cookie-pp-mcp
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    targets:
+      - darwin_amd64
+      - darwin_arm64
+      - linux_amd64
+      - linux_arm64
+      - windows_amd64
+      - windows_arm64
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+checksum:
+  name_template: checksums.txt
+brews:
+  - name: slack-cookie-pp-cli
+    repository:
+      owner: mikefwille
+      name: homebrew-tap
+    homepage: "https://github.com/mikefwille/slack-cookie-pp-cli"
+    description: "Drive Slack from the terminal as yourself using your browser session, across all your separate-login workspaces, with offline sync and native Slack AI."
+    install: |
+      bin.install "slack-cookie-pp-cli"
+      bin.install "slack-cookie-pp-mcp"
