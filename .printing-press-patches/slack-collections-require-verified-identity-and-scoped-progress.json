@@ -19,7 +19,11 @@
     "internal/slackmirror/",
     "internal/store/slackcookie_*.go",
     "internal/cli/slackcookie_*.go",
-    "internal/mcp/slackcookie_*.go"
+    "internal/mcp/slackcookie_*.go",
+    "internal/cli/digest.go",
+    "internal/cli/missed.go",
+    "internal/cli/stale_threads.go",
+    "internal/cli/trends.go"
   ],
   "validated_outcome": "Fixtures verify real envelopes, observer isolation, WAL-safe migration including a forced concurrent schema-4 to schema-5 race, edits/tombstones, cancelled/reopened thread pagination with empty pages and expired cursor replay, capped directory resume, durable retention limits, exact inclusive history fallback, retained-root discovery and CLI/typed/command MCP collection parity with interchangeable default local cursors."
 }
