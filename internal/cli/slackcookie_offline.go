@@ -78,13 +78,6 @@ func resolveAccountUserID(ctx context.Context, flags *rootFlags, account, explic
 	return ""
 }
 
-// messageResourceTypes hold Slack message objects in the local mirror.
-var messageResourceTypes = []string{
-	"conversations-conversations-history",
-	"conversations-conversations-replies",
-	"messages",
-}
-
 // storedMessage is a parsed message row from the local mirror.
 type storedMessage struct {
 	Account     string    `json:"account"`

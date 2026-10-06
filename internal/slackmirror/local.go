@@ -19,15 +19,15 @@ func CoverageFor(s *store.Store, id store.SlackIdentity, path string, p map[stri
 	if path == "/local.search" || path == "/local.messages" {
 		target = "/archive"
 	}
-	rows, err := s.DB().Query("SELECT scope,complete,reason FROM slack_scans")
+	rows, err := s.DB().Query("SELECT scope,complete,reason,retention_limited FROM slack_scans")
 	if err != nil {
 		return base
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var raw, reason string
-		var complete bool
-		if rows.Scan(&raw, &complete, &reason) != nil || !complete || reason != "" {
+		var complete, limited bool
+		if rows.Scan(&raw, &complete, &reason, &limited) != nil || !complete || limited || reason != "" {
 			continue
 		}
 		prefix, payload, ok := strings.Cut(raw, "|")

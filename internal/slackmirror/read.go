@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 	"strings"
@@ -51,6 +52,9 @@ func Scope(id store.SlackIdentity, path string, params map[string]string) string
 	p := Clone(params)
 	for _, key := range []string{"cursor", "limit", "count", "page"} {
 		delete(p, key)
+	}
+	if p["inclusive"] == "false" {
+		delete(p, "inclusive")
 	}
 	data, _ := json.Marshal(struct {
 		Workspace, Observer, Endpoint string
@@ -126,6 +130,14 @@ func validate(path string, p map[string]string) error {
 		}
 		if normalized != "" {
 			p[key] = normalized
+		}
+	}
+	if value := p["inclusive"]; value != "" {
+		if value != "true" && value != "false" {
+			return fmt.Errorf("inclusive must be true or false")
+		}
+		if value == "false" {
+			delete(p, "inclusive")
 		}
 	}
 	for _, key := range []string{"limit", "count"} {
@@ -232,12 +244,81 @@ func wireParams(path string, p map[string]string, cursor string) map[string]stri
 		}
 		out[key] = strings.TrimPrefix(cursor, "time:")
 		out["inclusive"] = "false"
+		// Time fallback excludes the already-seen latest boundary. Preserve the
+		// original inclusive lower bound by moving it one exact microsecond back.
+		if path == "/conversations.history" && p["inclusive"] == "true" && p["oldest"] != "" {
+			out["oldest"] = previousMicrosecond(p["oldest"])
+			if out["oldest"] == "" {
+				delete(out, "oldest")
+			}
+		}
 	case strings.HasPrefix(cursor, "page:"):
 		out["page"] = strings.TrimPrefix(cursor, "page:")
 	case cursor != "":
 		out["cursor"] = cursor
 	}
 	return out
+}
+
+// previousMicrosecond preserves Slack decimal precision, including second rollover.
+// Zero has no predecessor in Slack's nonnegative timestamp domain.
+func previousMicrosecond(ts string) string {
+	micros, ok := new(big.Int).SetString(strings.ReplaceAll(ts, ".", ""), 10)
+	if !ok || micros.Sign() == 0 {
+		return ""
+	}
+	micros.Sub(micros, big.NewInt(1))
+	seconds, fraction := new(big.Int), new(big.Int)
+	seconds.QuoRem(micros, big.NewInt(1000000), fraction)
+	return fmt.Sprintf("%s.%06d", seconds.String(), fraction.Int64())
+}
+
+// Message collections omit identity fields that the authenticated request
+// supplies. Normalize that context before both persistence and adapter output.
+func contextualizeMessages(id store.SlackIdentity, path string, p map[string]string, items []json.RawMessage) ([]json.RawMessage, error) {
+	out := make([]json.RawMessage, 0, len(items))
+	for _, raw := range items {
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+			return nil, fmt.Errorf("invalid Slack message object")
+		}
+		message := obj
+		if obj["subtype"] == "message_changed" {
+			var ok bool
+			message, ok = obj["message"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("message_changed lacks message")
+			}
+		}
+		channel := p["channel"]
+		explicit, _ := message["channel"].(string)
+		if value, ok := message["channel"].(map[string]any); ok {
+			explicit, _ = value["id"].(string)
+		}
+		if channel != "" && explicit != "" && channel != explicit {
+			return nil, fmt.Errorf("message conversation identity conflicts with request")
+		}
+		if channel == "" {
+			channel = explicit
+		}
+		if channel == "" {
+			return nil, fmt.Errorf("message conversation identity is missing")
+		}
+		message["channel"], message["workspace_id"] = channel, id.WorkspaceID
+		if path == "/conversations.replies" {
+			thread, _ := message["thread_ts"].(string)
+			if thread != "" && thread != p["ts"] {
+				return nil, fmt.Errorf("message thread identity conflicts with request")
+			}
+			message["thread_ts"] = p["ts"]
+		}
+		encoded, err := json.Marshal(obj)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, encoded)
+	}
+	return out, nil
 }
 
 // Fetch persists each page before returning its continuation. maxPages=0 is
@@ -258,6 +339,11 @@ func (r *Reader) Fetch(ctx context.Context, path string, params map[string]strin
 	}
 	completePrefix := cursor == "" || resume
 	out := Result{Items: make([]json.RawMessage, 0), Source: "live", WorkspaceID: r.Identity.WorkspaceID}
+	prior, err := r.Store.SlackScan(scope)
+	if err != nil {
+		return out, err
+	}
+	limited := resume && prior.RetentionLimited
 	visited := map[string]bool{}
 	for page := 0; ; page++ {
 		if err := ctx.Err(); err != nil {
@@ -283,9 +369,10 @@ func (r *Reader) Fetch(ctx context.Context, path string, params map[string]strin
 			Limited bool `json:"is_limited"`
 		}
 		_ = json.Unmarshal(raw, &metadata)
-		if metadata.Limited {
+		limited = limited || metadata.Limited
+		scan.RetentionLimited = limited
+		if limited {
 			scan.Complete = false
-			scan.Reason = "retention_limited"
 		}
 		if more && next == "" {
 			scan.Complete = false
@@ -299,6 +386,10 @@ func (r *Reader) Fetch(ctx context.Context, path string, params map[string]strin
 			scan.Reason = "search_is_supplemental"
 		}
 		if path == "/conversations.history" || path == "/conversations.replies" || path == "/search.messages" {
+			items, err = contextualizeMessages(r.Identity, path, p, items)
+			if err != nil {
+				return out, err
+			}
 			if err = r.Store.CommitSlackPage(ctx, r.Identity, p["channel"], path, scope, items, scan); err != nil {
 				return out, err
 			}

@@ -43,7 +43,7 @@ func (s *Store) CommitSlackDirectoryPage(ctx context.Context, id SlackIdentity, 
 			}
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO slack_scans VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason", scope, scan.Cursor, scan.Complete, scan.Reason); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO slack_scans VALUES(?,?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason,retention_limited=excluded.retention_limited", scope, scan.Cursor, scan.Complete, scan.Reason, scan.RetentionLimited); err != nil {
 		return err
 	}
 	return tx.Commit()

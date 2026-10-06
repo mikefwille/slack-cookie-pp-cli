@@ -28,9 +28,10 @@ type SlackCoverage struct {
 }
 
 type SlackScan struct {
-	Cursor   string `json:"cursor"`
-	Complete bool   `json:"complete"`
-	Reason   string `json:"reason,omitempty"`
+	Cursor           string `json:"cursor"`
+	Complete         bool   `json:"complete"`
+	Reason           string `json:"reason,omitempty"`
+	RetentionLimited bool   `json:"retention_limited,omitempty"`
 }
 
 var slackTS = regexp.MustCompile(`^(0|[1-9][0-9]*)\.[0-9]{6}$`)
@@ -90,7 +91,7 @@ func (s *Store) migrateSlack(ctx context.Context, conn *sql.Conn) error {
 		`CREATE TABLE IF NOT EXISTS slack_messages (workspace_id TEXT NOT NULL,channel_id TEXT NOT NULL,ts TEXT NOT NULL,thread_ts TEXT NOT NULL,text TEXT NOT NULL,revision_ts TEXT NOT NULL,deleted INTEGER NOT NULL,priority INTEGER NOT NULL,history_seen INTEGER NOT NULL,sources TEXT NOT NULL,observed_at TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(workspace_id,channel_id,ts))`,
 		`CREATE INDEX IF NOT EXISTS slack_messages_thread ON slack_messages(workspace_id,channel_id,thread_ts,ts)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS slack_messages_fts USING fts5(workspace_id UNINDEXED,channel_id UNINDEXED,ts UNINDEXED,text,tokenize='porter unicode61')`,
-		`CREATE TABLE IF NOT EXISTS slack_scans (scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,complete INTEGER NOT NULL,reason TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS slack_scans (scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,complete INTEGER NOT NULL,reason TEXT NOT NULL,retention_limited INTEGER NOT NULL DEFAULT 0)`,
 		`CREATE TABLE IF NOT EXISTS slack_directories (workspace_id TEXT NOT NULL,user_id TEXT NOT NULL,resource_type TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(workspace_id,user_id,resource_type,id))`,
 		`CREATE TABLE IF NOT EXISTS slack_archive_members (scope TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(scope,id))`,
 		`CREATE INDEX IF NOT EXISTS slack_message_order ON slack_messages(workspace_id,length(ts),ts,channel_id)`,
@@ -146,7 +147,7 @@ func (s *Store) BindSlackIdentity(id SlackIdentity) error {
 
 func (s *Store) SlackScan(scope string) (SlackScan, error) {
 	var p SlackScan
-	err := s.db.QueryRow("SELECT cursor,complete,reason FROM slack_scans WHERE scope=?", scope).Scan(&p.Cursor, &p.Complete, &p.Reason)
+	err := s.db.QueryRow("SELECT cursor,complete,reason,retention_limited FROM slack_scans WHERE scope=?", scope).Scan(&p.Cursor, &p.Complete, &p.Reason, &p.RetentionLimited)
 	if err == sql.ErrNoRows {
 		return p, nil
 	}
@@ -156,7 +157,7 @@ func (s *Store) SlackScan(scope string) (SlackScan, error) {
 func (s *Store) SaveSlackScan(scope string, p SlackScan) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	_, err := s.db.Exec("INSERT INTO slack_scans VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason", scope, p.Cursor, p.Complete, p.Reason)
+	_, err := s.db.Exec("INSERT INTO slack_scans VALUES(?,?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason,retention_limited=excluded.retention_limited", scope, p.Cursor, p.Complete, p.Reason, p.RetentionLimited)
 	return err
 }
 
@@ -167,10 +168,13 @@ func (s *Store) SlackCoverage(scope string) SlackCoverage {
 		c.Reasons = []string{"workspace_identity_unavailable"}
 	}
 	p, err := s.SlackScan(scope)
-	if err == nil && p.Complete && c.State != "unavailable" {
+	if err == nil && p.Complete && !p.RetentionLimited && c.State != "unavailable" {
 		c.State = "complete"
 		c.Reasons = nil
 		c.TraversalComplete = true
+	}
+	if p.RetentionLimited {
+		c.Reasons = append(c.Reasons, "retention_limited")
 	}
 	if p.Reason != "" {
 		c.Reasons = append(c.Reasons, p.Reason)
@@ -350,7 +354,7 @@ func (s *Store) CommitSlackPage(ctx context.Context, id SlackIdentity, channel, 
 		}
 	}
 	if scope != "" {
-		if _, err = tx.ExecContext(ctx, "INSERT INTO slack_scans VALUES(?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason", scope, scan.Cursor, scan.Complete, scan.Reason); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO slack_scans VALUES(?,?,?,?,?) ON CONFLICT(scope) DO UPDATE SET cursor=excluded.cursor,complete=excluded.complete,reason=excluded.reason,retention_limited=excluded.retention_limited", scope, scan.Cursor, scan.Complete, scan.Reason, scan.RetentionLimited); err != nil {
 			return err
 		}
 	}

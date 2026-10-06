@@ -60,7 +60,7 @@ func (r *Reader) Partition(ctx context.Context, path string, params map[string]s
 		// Expired opaque cursors restart the same immutable range. Canonical keys
 		// and revision ordering make every already committed page safe to replay.
 		delete(p, "cursor")
-		if resetErr := r.Store.SaveSlackScan(scope, store.SlackScan{Reason: "cursor_expired_restart"}); resetErr != nil {
+		if resetErr := r.Store.SaveSlackScan(scope, store.SlackScan{Reason: "cursor_expired_restart", RetentionLimited: scan.RetentionLimited}); resetErr != nil {
 			return out, resetErr
 		}
 		out, err = r.Fetch(ctx, path, p, true, true, maxPages)
@@ -75,9 +75,11 @@ func (r *Reader) Partition(ctx context.Context, path string, params map[string]s
 		if saveErr := r.Store.SaveSlackScan(scope, current); saveErr != nil {
 			return out, saveErr
 		}
-	} else if out.HasMore {
+	} else if out.HasMore && maxPages > 0 && out.NextCursor != "" {
 		current, _ := r.Store.SlackScan(scope)
-		current.Reason = "page_limit_reached"
+		if current.Reason == "" {
+			current.Reason = "page_limit_reached"
+		}
 		if err = r.Store.SaveSlackScan(scope, current); err != nil {
 			return out, err
 		}
@@ -110,6 +112,8 @@ func (r *Reader) Archive(ctx context.Context, opts ArchiveOptions) (ArchiveRepor
 	controlParams := map[string]string{"since": opts.Since, "discovery": Scope(r.Identity, "/conversations.list", discovery)}
 	serialized, _ := json.Marshal(opts.Params)
 	controlParams["params"] = string(serialized)
+	resourceSet, _ := json.Marshal(requested)
+	controlParams["resources"] = string(resourceSet)
 	control := Scope(r.Identity, "/archive-run", controlParams)
 	state, err := r.Store.SlackScan(control)
 	if err != nil {
@@ -127,10 +131,8 @@ func (r *Reader) Archive(ctx context.Context, opts ArchiveOptions) (ArchiveRepor
 	report.Oldest, report.Latest, report.Resumed = progress.Oldest, progress.Latest, !newRun
 	discovery["_archive_run"] = control + "|" + progress.Latest
 	encoded, _ := json.Marshal(progress)
-	if messages {
-		if err = r.Store.SaveSlackScan(control, store.SlackScan{Cursor: string(encoded)}); err != nil {
-			return report, err
-		}
+	if err = r.Store.SaveSlackScan(control, store.SlackScan{Cursor: string(encoded)}); err != nil {
+		return report, err
 	}
 	complete := true
 	record := func(label string, result Result, e error) {
@@ -158,7 +160,9 @@ func (r *Reader) Archive(ctx context.Context, opts ArchiveOptions) (ArchiveRepor
 		}
 	}
 	if requested["users"] {
-		result, e := r.Partition(ctx, "/users.list", paramsFor("users", map[string]string{"limit": "200"}), true, opts.MaxPages)
+		users := paramsFor("users", map[string]string{"limit": "200"})
+		users["_archive_run"] = control + "|" + progress.Latest
+		result, e := r.Partition(ctx, "/users.list", users, newRun, opts.MaxPages)
 		record("users", result, e)
 		if e != nil {
 			report.Coverage.Reasons = report.Reasons
@@ -252,14 +256,18 @@ func (r *Reader) Archive(ctx context.Context, opts ArchiveOptions) (ArchiveRepor
 		if err = r.Store.SaveSlackScan(coverageScope, store.SlackScan{Complete: complete, Reason: reason}); err != nil {
 			return report, err
 		}
-		if err = r.Store.SaveSlackScan(control, store.SlackScan{Cursor: string(encoded), Complete: complete, Reason: reason}); err != nil {
-			return report, err
-		}
 		report.Coverage = r.Store.SlackCoverage(coverageScope)
 		report.Coverage.Oldest = progress.Oldest
 		report.Coverage.Latest = progress.Latest
 	} else if complete {
 		report.Coverage.State = "complete"
+	}
+	reason := ""
+	if !complete {
+		reason = "archive_incomplete"
+	}
+	if err = r.Store.SaveSlackScan(control, store.SlackScan{Cursor: string(encoded), Complete: complete, Reason: reason}); err != nil {
+		return report, err
 	}
 	report.Coverage.Reasons = append(report.Coverage.Reasons, report.Reasons...)
 	return report, nil

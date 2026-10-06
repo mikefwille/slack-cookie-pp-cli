@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"slack-cookie-pp-cli/internal/cli"
@@ -44,6 +43,14 @@ func handleSlackCollection(ctx context.Context, c *client.Client, path string, b
 	if source != "auto" && source != "local" && source != "live" {
 		return mcplib.NewToolResultError("data_source must be auto, local or live"), nil
 	}
+	for _, key := range []string{"limit", "count"} {
+		if value := params[key]; value != "" {
+			n, err := strconv.Atoi(value)
+			if err != nil || n < 1 {
+				return mcplib.NewToolResultError(key + " must be positive"), nil
+			}
+		}
+	}
 	all, _ := args["all"].(bool)
 	// Keep the existing MCP item budget without truncating a fetched page behind
 	// an upstream continuation token. Byte overflow is an explicit error.
@@ -69,9 +76,6 @@ func handleSlackCollection(ctx context.Context, c *client.Client, path string, b
 	wrapped, err := cli.WrapSlackResult(data, prov)
 	if err != nil {
 		return mcplib.NewToolResultError(err.Error()), nil
-	}
-	if !json.Valid(wrapped) {
-		return mcplib.NewToolResultError("invalid shared Slack collection response"), nil
 	}
 	if len(wrapped) > bound.MaxBytes {
 		return mcplib.NewToolResultError(fmt.Sprintf("Slack collection exceeds the existing %d-byte MCP budget; reduce limit or use command mirror with --select", bound.MaxBytes)), nil

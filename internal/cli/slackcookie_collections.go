@@ -28,8 +28,9 @@ func ReadSlackCollection(ctx context.Context, c *client.Client, dbPath, path str
 	if err != nil {
 		return nil, DataProvenance{}, err
 	}
-	data, err := json.Marshal(result.Items)
-	prov := DataProvenance{Source: result.Source, ResourceType: path, Coverage: result.Coverage, NextCursor: result.NextCursor, HasMore: result.HasMore, WorkspaceID: result.WorkspaceID, Reason: reason}
+	data, prov, err := slackResultData(result)
+	prov.ResourceType = path
+	prov.Reason = reason
 	return data, prov, err
 }
 
