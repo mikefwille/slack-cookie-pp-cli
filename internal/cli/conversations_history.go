@@ -17,6 +17,7 @@ func newConversationsHistoryCmd(flags *rootFlags) *cobra.Command {
 	var flagLatest string
 	var flagCursor string
 	var flagAll bool
+	var flagInclusive bool
 
 	cmd := &cobra.Command{
 		Use:   "history <channel>",
@@ -42,11 +43,12 @@ func newConversationsHistoryCmd(flags *rootFlags) *cobra.Command {
 			// failed id extraction — the empty-store bug. The offline features
 			// query this resource type.
 			data, prov, err := resolvePaginatedReadWithStrategy(cmd.Context(), c, flags, "auto", "conversations-conversations-history", path, map[string]string{
-				"channel": args[0],
-				"limit":   formatCLIParamValue(flagLimit),
-				"oldest":  formatCLIParamValue(flagOldest),
-				"latest":  formatCLIParamValue(flagLatest),
-				"cursor":  formatCLIParamValue(flagCursor),
+				"channel":   args[0],
+				"limit":     formatCLIParamValue(flagLimit),
+				"oldest":    formatCLIParamValue(flagOldest),
+				"latest":    formatCLIParamValue(flagLatest),
+				"cursor":    formatCLIParamValue(flagCursor),
+				"inclusive": formatCLIParamValue(flagInclusive),
 			}, nil, flagAll, "", "cursor", "", "", "response_metadata.next_cursor", cmd.ErrOrStderr())
 			if err != nil {
 				return classifyAPIError(err, flags)
@@ -100,6 +102,7 @@ func newConversationsHistoryCmd(flags *rootFlags) *cobra.Command {
 	cmd.Flags().StringVar(&flagLatest, "latest", "", "Only messages before this Unix ts")
 	cmd.Flags().StringVar(&flagCursor, "cursor", "", "Pagination cursor")
 	cmd.Flags().BoolVar(&flagAll, "all", false, "Fetch all pages")
+	cmd.Flags().BoolVar(&flagInclusive, "inclusive", false, "Include messages equal to the timestamp bounds")
 
 	return cmd
 }

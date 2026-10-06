@@ -59,39 +59,26 @@ func newSyncCmd(flags *rootFlags) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync API data to local SQLite for offline search and analysis",
-		Long: `Sync data from the API into a local SQLite database. This API does
-not declare temporal sync filters, so sync performs full pagination unless an
-explicit resource declares its own incremental filter.
-Once synced, use the 'search' command for instant full-text search.
+		Long: `Sync verified Slack data to the active account's SQLite mirror.
+Plain sync refreshes conversations and users. Explicit --resources
+conversations,messages discovers public/private channels, DMs and group DMs,
+then traverses retained history roots and their replies. --since narrows the
+requested message window; old roots can still be observed to find recent replies.
 
-Exit codes & warnings:
-  Resources the API denies access to (HTTP 403, or HTTP 400 with an
-  access-policy body) are reported as warnings rather than failing the
-  run. In --json mode each is emitted as a {"event":"sync_warning",...}
-  line carrying status, reason, and message fields, and a final
-  {"event":"sync_summary",...} aggregates the run.
+Archive page data and continuation commit together. Rerunning an incomplete
+archive resumes its frozen range. --full starts a new run. Expired cursors
+replay that range. The summary distinguishes observations from distinct
+window_messages and reports complete/partial/unavailable traversal coverage.
+Coverage does not certify freshness, deleted events or inaccessible retention.
 
-  Exit 0 when at least one resource synced and no resource flagged in
-  the spec as critical (x-critical: true) failed; non-critical failures
-  emit {"event":"sync_warning","reason":"exit_policy_default_changed",
-  ...} so callers can detect that a partial failure was tolerated. Pass
-  --strict to exit non-zero on any per-resource failure. Exit is always
-  non-zero when every selected resource failed, regardless of --strict.
-
-Resource scoping:
-  --resources runs the named top-level resources, plus any parent-keyed
-  dependent whose own name is listed OR whose parent table is listed.
-  Naming a parent therefore cascades to its dependents (so "sync this
-  parent and its children" works without listing every nested resource
-  by hand). There is no flag today to suppress the cascade for a named
-  parent. To run a dependent without re-syncing its parent, list only
-  the dependent by name; the parent table must already be populated
-  from a prior sync.`,
+--max-pages caps each source partition; --strict exits nonzero on partial
+coverage. Scope discovery with --resource-param conversations.types=im,mpim
+or conversations.exclude_archived=true.`,
 		Example: `  # Sync all resources
   slack-cookie-pp-cli sync
 
   # Sync specific resources only
-  slack-cookie-pp-cli sync --resources channels,messages
+  slack-cookie-pp-cli sync --resources conversations,messages
 
   # Full resync (ignore previous checkpoint)
   slack-cookie-pp-cli sync --full
@@ -120,18 +107,19 @@ Resource scoping:
 				dbPath = defaultDBPath("slack-cookie-pp-cli")
 			}
 
+			// If no specific resources, sync top-level resources
+			if len(resources) == 0 {
+				resources = defaultSyncResources()
+			}
+			if !c.DryRun {
+				return runSlackMirrorSync(cmd, flags, c, dbPath, resources, since, full, latestOnly, strict, maxPages, userParams)
+			}
 			db, err := store.OpenWithContext(cmd.Context(), dbPath)
 			if err != nil {
 				return fmt.Errorf("opening local database: %w", err)
 			}
 			defer db.Close()
-
 			syncEventWriter := cmd.OutOrStdout()
-
-			// If no specific resources, sync top-level resources
-			if len(resources) == 0 {
-				resources = defaultSyncResources()
-			}
 
 			// Reject --resource-param keys that don't match a known resource.
 			// Validates against the full top-level + dependent set, not the

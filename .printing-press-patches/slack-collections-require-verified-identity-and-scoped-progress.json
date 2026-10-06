@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "id": "slack-collections-require-verified-identity-and-scoped-progress",
+  "applied_at": "2026-10-06",
+  "base_run_id": "20260629-171901-slackcookie",
+  "base_printing_press_version": "4.27.0",
+  "summary": "Slack collection reads, archive sync, offline reports and MCP must share verified workspace/conversation/message identity, canonical current state and scope-owned pagination.",
+  "reason": "Slack envelopes and overlapping endpoints cannot be safely cached through generic timestamp-only resource extraction; losing request identity or trusting suffix cursors causes collisions, omissions and false completeness. Preserve verified backup/quarantine recovery and atomic page/checkpoint commits on regeneration.",
+  "files": [
+    "internal/cli/conversations_history.go",
+    "internal/cli/conversations_replies.go",
+    "internal/cli/data_source.go",
+    "internal/cli/helpers.go",
+    "internal/cli/search.go",
+    "internal/cli/sync.go",
+    "internal/mcp/tools.go",
+    "internal/store/store.go",
+    "spec.yaml",
+    "internal/slackmirror/",
+    "internal/store/slackcookie_*.go",
+    "internal/cli/slackcookie_*.go"
+  ],
+  "validated_outcome": "Fixtures verify real Slack envelopes, observer mismatch isolation, WAL-safe migration, edits/tombstones, frozen archive resume, retained-root reply discovery and CLI/typed/command MCP collection parity."
+}

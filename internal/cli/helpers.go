@@ -2068,6 +2068,10 @@ type DataProvenance struct {
 	Reason       string     `json:"reason,omitempty"`        // why local was used: "user_requested", "api_unreachable", "no_search_endpoint"
 	ResourceType string     `json:"resource_type,omitempty"` // which resource type was queried
 	Freshness    any        `json:"freshness,omitempty"`     // optional machine-owned freshness metadata for covered command paths
+	Coverage     any        `json:"coverage,omitempty"`
+	NextCursor   string     `json:"next_cursor,omitempty"`
+	HasMore      bool       `json:"has_more,omitempty"`
+	WorkspaceID  string     `json:"workspace_id,omitempty"`
 }
 
 // printProvenance writes a one-line provenance message to stderr for TTY users.
@@ -2138,6 +2142,16 @@ func wrapWithProvenance(data json.RawMessage, prov DataProvenance) (json.RawMess
 	}
 	if prov.Freshness != nil {
 		meta["freshness"] = prov.Freshness
+	}
+	if prov.Coverage != nil {
+		meta["coverage"] = prov.Coverage
+		meta["has_more"] = prov.HasMore
+	}
+	if prov.NextCursor != "" {
+		meta["next_cursor"] = prov.NextCursor
+	}
+	if prov.WorkspaceID != "" {
+		meta["workspace_id"] = prov.WorkspaceID
 	}
 	var results any
 	if json.Valid(data) {

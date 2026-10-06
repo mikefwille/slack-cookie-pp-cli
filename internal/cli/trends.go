@@ -88,10 +88,12 @@ func newTrendsCmd(flags *rootFlags) *cobra.Command {
 				if len(missing) > 0 {
 					out["missing_mirrors"] = missing
 				}
+				out["coverage"] = mirrorCoverage(mirrors)
 				return printJSONFiltered(cmd.OutOrStdout(), out, flags)
 			}
 
 			w := cmd.OutOrStdout()
+			printMirrorCoverage(cmd.ErrOrStderr(), mirrors)
 			for _, a := range missing {
 				fmt.Fprintf(cmd.ErrOrStderr(), "[%s] %s\n", a, missingMirrorHint(a))
 			}

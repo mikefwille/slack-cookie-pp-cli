@@ -3,10 +3,9 @@
 // the per-account SQLite mirror read-only and never make live API calls, so
 // repeated queries are cheap and rate-limit-safe (KTD6).
 //
-// Data-model note: message rows are keyed on ts and carry a channel only when
-// they came from search.messages; history/replies rows usually lack channel
-// context (the conversations.history payload omits it). Helpers expose the
-// channel when present and degrade to a "(unknown)" bucket otherwise.
+// Message identity is observing workspace, conversation and exact timestamp.
+// Reports use only verified canonical rows; ambiguous legacy rows remain
+// recoverable but cannot contribute to report results.
 
 package cli
 
@@ -22,6 +21,7 @@ import (
 	"slack-cookie-pp-cli/internal/client"
 	"slack-cookie-pp-cli/internal/cliutil"
 	"slack-cookie-pp-cli/internal/config"
+	"slack-cookie-pp-cli/internal/slackmirror"
 	"slack-cookie-pp-cli/internal/store"
 )
 
@@ -49,6 +49,13 @@ func newClientForAccount(flags *rootFlags, account string) (*client.Client, erro
 func resolveAccountUserID(ctx context.Context, flags *rootFlags, account, explicit string) string {
 	if strings.TrimSpace(explicit) != "" {
 		return strings.TrimSpace(explicit)
+	}
+	if s, err := store.OpenReadOnly(accountDBPath(account)); err == nil {
+		id, e := s.SlackIdentity()
+		s.Close()
+		if e == nil && id.UserID != "" {
+			return id.UserID
+		}
 	}
 	if flags.dataSource == "local" {
 		return ""
@@ -80,15 +87,16 @@ var messageResourceTypes = []string{
 
 // storedMessage is a parsed message row from the local mirror.
 type storedMessage struct {
-	Account    string    `json:"account"`
-	Channel    string    `json:"channel,omitempty"`
-	TS         string    `json:"ts"`
-	Time       time.Time `json:"time"`
-	User       string    `json:"user,omitempty"`
-	Text       string    `json:"text,omitempty"`
-	ThreadTS   string    `json:"thread_ts,omitempty"`
-	ReplyCount int       `json:"reply_count,omitempty"`
-	Subtype    string    `json:"subtype,omitempty"`
+	Account     string    `json:"account"`
+	WorkspaceID string    `json:"workspace_id"`
+	Channel     string    `json:"channel,omitempty"`
+	TS          string    `json:"ts"`
+	Time        time.Time `json:"time"`
+	User        string    `json:"user,omitempty"`
+	Text        string    `json:"text,omitempty"`
+	ThreadTS    string    `json:"thread_ts,omitempty"`
+	ReplyCount  int       `json:"reply_count,omitempty"`
+	Subtype     string    `json:"subtype,omitempty"`
 }
 
 // accountMirror is an opened per-account store, or a missing-mirror marker.
@@ -140,33 +148,26 @@ func missingMirrorHint(account string) string {
 // loadMessages returns the message rows in a mirror newer than `since` (a zero
 // `since` returns all). It scans every message resource type.
 func loadMessages(ctx context.Context, s *store.Store, account string, since time.Time) ([]storedMessage, error) {
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(messageResourceTypes)), ",")
-	args := make([]any, len(messageResourceTypes))
-	for i, rt := range messageResourceTypes {
-		args[i] = rt
+	params := map[string]string{}
+	if !since.IsZero() {
+		params["oldest"] = slackmirror.Stamp(since)
+		params["inclusive"] = "true"
 	}
-	rows, err := s.Query("SELECT data FROM resources WHERE resource_type IN ("+placeholders+")", args...)
+	if _, err := s.SlackIdentity(); err != nil {
+		return []storedMessage{}, nil
+	}
+	result, err := slackmirror.Local(ctx, s, "/local.messages", params, true)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var out []storedMessage
-	for rows.Next() {
-		var raw []byte
-		if err := rows.Scan(&raw); err != nil {
-			return nil, err
-		}
+	out := make([]storedMessage, 0, len(result.Items))
+	for _, raw := range result.Items {
 		m, ok := parseStoredMessage(raw, account)
-		if !ok {
-			continue
+		if ok {
+			out = append(out, m)
 		}
-		if !since.IsZero() && m.Time.Before(since) {
-			continue
-		}
-		out = append(out, m)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func parseStoredMessage(raw []byte, account string) (storedMessage, bool) {
@@ -179,14 +180,15 @@ func parseStoredMessage(raw []byte, account string) (storedMessage, bool) {
 		return storedMessage{}, false
 	}
 	m := storedMessage{
-		Account:  account,
-		TS:       ts,
-		Time:     tsToTime(ts),
-		User:     asString(obj["user"]),
-		Text:     asString(obj["text"]),
-		ThreadTS: asString(obj["thread_ts"]),
-		Subtype:  asString(obj["subtype"]),
-		Channel:  extractMessageChannel(obj),
+		Account:     account,
+		WorkspaceID: asString(obj["workspace_id"]),
+		TS:          ts,
+		Time:        tsToTime(ts),
+		User:        asString(obj["user"]),
+		Text:        asString(obj["text"]),
+		ThreadTS:    asString(obj["thread_ts"]),
+		Subtype:     asString(obj["subtype"]),
+		Channel:     extractMessageChannel(obj),
 	}
 	if rc, ok := obj["reply_count"].(float64); ok {
 		m.ReplyCount = int(rc)
@@ -221,19 +223,7 @@ func asString(v any) string {
 // tsToTime parses a Slack message ts ("1700000000.000100") into a time.Time.
 // A malformed ts yields the zero time.
 func tsToTime(ts string) time.Time {
-	ts = strings.TrimSpace(ts)
-	if ts == "" {
-		return time.Time{}
-	}
-	secPart := ts
-	if i := strings.IndexByte(ts, '.'); i >= 0 {
-		secPart = ts[:i]
-	}
-	sec, err := strconv.ParseInt(secPart, 10, 64)
-	if err != nil {
-		return time.Time{}
-	}
-	return time.Unix(sec, 0).UTC()
+	return store.SlackTime(ts)
 }
 
 // parseSinceCutoff converts a loose duration ("1d", "4h", "1w", "30m") into an

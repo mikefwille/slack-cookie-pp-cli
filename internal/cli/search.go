@@ -82,14 +82,16 @@ func newSearchCmd(flags *rootFlags) *cobra.Command {
 	var limit int
 	var dbPath string
 	searchResponsePaths := []string{
-		"messages",
+		"messages.matches",
 	}
 
 	cmd := &cobra.Command{
 		Use:   "search <query>",
-		Short: "Full-text search across synced data or live API",
-		Long: `Search data using FTS5 full-text search on locally synced data,
-or hit the API's search endpoint when available.
+		Short: "Search verified local messages or live Slack search",
+		Long: `Search verified canonical messages using local FTS5, or use Slack live search.
+Local filters: --channel, --thread-ts, --oldest, --latest and --inclusive.
+Local cursors use a live keyset: ingestion between pages can change membership.
+Legacy rows with unverified identity are excluded; coverage is reported in meta.
 
 In auto mode (default): uses the API search endpoint if the API has one,
 otherwise searches local data. Falls back to local on network failure.
@@ -101,7 +103,7 @@ In local mode: searches locally synced data only.`,
   # Force local search only
   slack-cookie-pp-cli search "status" --data-source local
   # Search a specific resource type locally
-  slack-cookie-pp-cli search "status" --type chat --data-source local
+  slack-cookie-pp-cli search "status" --type messages --data-source local
   # JSON output for piping
   slack-cookie-pp-cli search "critical" --json --limit 20`,
 		Annotations: map[string]string{"mcp:hidden": "true"},
@@ -206,6 +208,7 @@ In local mode: searches locally synced data only.`,
 	cmd.Flags().StringVar(&resourceType, "type", "", "Filter by resource type")
 	cmd.Flags().IntVar(&limit, "limit", 50, "Maximum results to return")
 	cmd.Flags().StringVar(&dbPath, "db", "", "SQLite database file path (default: resolved data directory data.db)")
+	configureSlackSearch(cmd, flags, &resourceType, &limit, &dbPath)
 
 	return cmd
 }

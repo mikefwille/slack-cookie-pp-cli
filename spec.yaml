@@ -53,8 +53,9 @@ resources:
           item: Conversation
         pagination:
           type: cursor
-          cursor_field: cursor
-          has_more_field: response_metadata.next_cursor
+          cursor_param: cursor
+          limit_param: limit
+          next_cursor_path: response_metadata.next_cursor
         response_path: channels
       history:
         method: GET
@@ -84,8 +85,9 @@ resources:
           item: Message
         pagination:
           type: cursor
-          cursor_field: cursor
-          has_more_field: response_metadata.next_cursor
+          cursor_param: cursor
+          limit_param: limit
+          next_cursor_path: response_metadata.next_cursor
         response_path: messages
         # Slack messages key on ts (no id/name); without this the store cannot
         # extract an id and silently stores zero rows. See internal/store/slackcookie_overrides.go.
@@ -115,6 +117,11 @@ resources:
         response:
           type: array
           item: Message
+        pagination:
+          type: cursor
+          cursor_param: cursor
+          limit_param: limit
+          next_cursor_path: response_metadata.next_cursor
         response_path: messages
         # Slack thread replies key on ts (see history above).
         x-resource-id: ts
@@ -205,7 +212,7 @@ resources:
         response:
           type: object
           item: SearchResult
-        response_path: messages
+        response_path: messages.matches
         # search.messages results key on ts (see conversations.history).
         x-resource-id: ts
 
@@ -229,8 +236,9 @@ resources:
           item: User
         pagination:
           type: cursor
-          cursor_field: cursor
-          has_more_field: response_metadata.next_cursor
+          cursor_param: cursor
+          limit_param: limit
+          next_cursor_path: response_metadata.next_cursor
         response_path: members
       info:
         method: GET

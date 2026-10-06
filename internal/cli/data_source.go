@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"slack-cookie-pp-cli/internal/client"
+	"slack-cookie-pp-cli/internal/slackmirror"
 	"slack-cookie-pp-cli/internal/store"
 )
 
@@ -147,6 +148,9 @@ func resolveReadWithStrategyAndResponsePath(ctx context.Context, c *client.Clien
 }
 
 func resolveReadWithStrategyResponsePathAndJSONGuard(ctx context.Context, c *client.Client, flags *rootFlags, strategy string, resourceType string, isList bool, path string, params map[string]string, headers map[string]string, responsePath string, guardLiveJSON bool, hintWriter io.Writer) (json.RawMessage, DataProvenance, error) {
+	if slackmirror.Supported(path) && !c.DryRun {
+		return resolveSlackCollection(ctx, c, flags, path, params, false)
+	}
 	if err := validateDataSourceStrategy(flags, strategy); err != nil {
 		return nil, DataProvenance{}, err
 	}
@@ -219,6 +223,9 @@ func resolvePaginatedRead(ctx context.Context, c *client.Client, flags *rootFlag
 }
 
 func resolvePaginatedReadWithStrategy(ctx context.Context, c *client.Client, flags *rootFlags, strategy string, resourceType string, path string, params map[string]string, headers map[string]string, fetchAll bool, cursorParam, paginationType, limitParam, nextCursorPath, hasMoreField string, hintWriter io.Writer) (json.RawMessage, DataProvenance, error) {
+	if slackmirror.Supported(path) && !c.DryRun {
+		return resolveSlackCollection(ctx, c, flags, path, params, fetchAll)
+	}
 	if err := validateDataSourceStrategy(flags, strategy); err != nil {
 		return nil, DataProvenance{}, err
 	}

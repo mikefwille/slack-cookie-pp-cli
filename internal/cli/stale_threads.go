@@ -84,10 +84,11 @@ func newStaleThreadsCmd(flags *rootFlags) *cobra.Command {
 							continue
 						}
 					}
-					a := threads[key]
+					identity := msg.WorkspaceID + "/" + msg.Channel + "/" + key
+					a := threads[identity]
 					if a == nil {
 						a = &agg{}
-						threads[key] = a
+						threads[identity] = a
 					}
 					a.count++
 					if msg.Time.After(a.last) {
@@ -101,7 +102,8 @@ func newStaleThreadsCmd(flags *rootFlags) *cobra.Command {
 						a.participant = true
 					}
 				}
-				for key, a := range threads {
+				for identity, a := range threads {
+					key := identity[strings.LastIndex(identity, "/")+1:]
 					scanned++
 					if !a.participant {
 						continue
@@ -117,13 +119,14 @@ func newStaleThreadsCmd(flags *rootFlags) *cobra.Command {
 			sort.Slice(stale, func(i, j int) bool { return stale[i].LastReply.Before(stale[j].LastReply) })
 
 			if flags.asJSON {
-				out := map[string]any{"days": days, "scanned_threads": scanned, "stale": stale}
+				out := map[string]any{"days": days, "scanned_threads": scanned, "stale": stale, "coverage": mirrorCoverage(mirrors)}
 				if len(missing) > 0 {
 					out["missing_mirrors"] = missing
 				}
 				return printJSONFiltered(cmd.OutOrStdout(), out, flags)
 			}
 			w := cmd.OutOrStdout()
+			printMirrorCoverage(cmd.ErrOrStderr(), mirrors)
 			for _, a := range missing {
 				fmt.Fprintf(cmd.ErrOrStderr(), "[%s] %s\n", a, missingMirrorHint(a))
 			}

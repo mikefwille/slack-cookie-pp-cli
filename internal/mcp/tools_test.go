@@ -112,7 +112,7 @@ func TestMCPRegisterToolsPreservesTypedSpecialTools(t *testing.T) {
 	if !ok {
 		t.Fatalf("typed search tool missing from registered tools: %#v", tools)
 	}
-	if !strings.Contains(searchTool.Tool.Description, "Full-text search across all synced data") {
+	if !strings.Contains(searchTool.Tool.Description, "Search verified canonical messages") {
 		t.Fatalf("search tool appears to have been overwritten by command mirror: %q", searchTool.Tool.Description)
 	}
 	sqlTool, ok := tools["sql"]

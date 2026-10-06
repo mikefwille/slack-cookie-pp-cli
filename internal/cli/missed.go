@@ -62,7 +62,7 @@ func newMissedCmd(flags *rootFlags) *cobra.Command {
 					// does not also match a longer id like "<@U1234>".
 					isMention := mention != "" &&
 						(strings.Contains(msg.Text, mention+">") || strings.Contains(msg.Text, mention+"|"))
-					isDM := strings.HasPrefix(msg.Channel, "D")
+					isDM := conversationIsDM(ctx, m.Store, msg.Channel)
 					if isMention || isDM {
 						hits = append(hits, msg)
 					}
@@ -71,13 +71,14 @@ func newMissedCmd(flags *rootFlags) *cobra.Command {
 			sort.Slice(hits, func(i, j int) bool { return hits[i].Time.After(hits[j].Time) })
 
 			if flags.asJSON {
-				out := map[string]any{"since": since, "mention_filter_active": mentionActive, "messages": hits}
+				out := map[string]any{"since": since, "mention_filter_active": mentionActive, "messages": hits, "coverage": mirrorCoverage(mirrors)}
 				if len(missing) > 0 {
 					out["missing_mirrors"] = missing
 				}
 				return printJSONFiltered(cmd.OutOrStdout(), out, flags)
 			}
 			w := cmd.OutOrStdout()
+			printMirrorCoverage(cmd.ErrOrStderr(), mirrors)
 			if !mentionActive {
 				fmt.Fprintln(cmd.ErrOrStderr(), "note: your user id is unknown (pass --me <U…> or authenticate) — showing DMs only, not mentions")
 			}

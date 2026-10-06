@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"slack-cookie-pp-cli/internal/config"
 	"slack-cookie-pp-cli/internal/mcp/bound"
 	"slack-cookie-pp-cli/internal/mcp/cobratree"
+	"slack-cookie-pp-cli/internal/slackmirror"
 	"slack-cookie-pp-cli/internal/store"
 )
 
@@ -47,7 +47,7 @@ func RegisterTools(s *server.MCPServer) {
 		makeAPIHandler("POST", "/chat.postMessage", false, false, nil, mcpPageConfig{}, []mcpParamBinding{{PublicName: "channel", WireName: "channel", Location: "body"}, {PublicName: "text", WireName: "text", Location: "body"}, {PublicName: "thread_ts", WireName: "thread_ts", Location: "body"}}, []string{}),
 	)
 	s.AddTool(
-		mcplib.NewTool("conversations_history",
+		slackCollectionTool("conversations_history", "/conversations.history",
 			mcplib.WithDescription("Read messages from a conversation. Required: channel. Optional: limit (default: 100), oldest, latest (plus 1 more). Returns array of Message."),
 			mcplib.WithString("channel", mcplib.Required(), mcplib.Description("Conversation ID (C…/G…/D…)")),
 			mcplib.WithNumber("limit", mcplib.Description("Max messages per page (<=999)")),
@@ -71,7 +71,7 @@ func RegisterTools(s *server.MCPServer) {
 		makeAPIHandler("GET", "/conversations.info", true, false, nil, mcpPageConfig{}, []mcpParamBinding{{PublicName: "channel", WireName: "channel", Location: "query"}}, []string{"channel"}),
 	)
 	s.AddTool(
-		mcplib.NewTool("conversations_list",
+		slackCollectionTool("conversations_list", "/conversations.list",
 			mcplib.WithDescription("List channels, DMs, and group DMs. Optional: types, exclude_archived (default: true), limit (default: 200) (plus 1 more). Returns array of Conversation."),
 			mcplib.WithString("types", mcplib.Description("Comma-separated conversation types")),
 			mcplib.WithBoolean("exclude_archived", mcplib.Description("Exclude archived conversations")),
@@ -94,7 +94,7 @@ func RegisterTools(s *server.MCPServer) {
 		makeAPIHandler("POST", "/conversations.open", false, false, nil, mcpPageConfig{}, []mcpParamBinding{{PublicName: "users", WireName: "users", Location: "body"}, {PublicName: "channel", WireName: "channel", Location: "body"}}, []string{}),
 	)
 	s.AddTool(
-		mcplib.NewTool("conversations_replies",
+		slackCollectionTool("conversations_replies", "/conversations.replies",
 			mcplib.WithDescription("Read replies in a thread. Required: channel, ts. Optional: limit (default: 100), cursor. Returns array of Message."),
 			mcplib.WithString("channel", mcplib.Required(), mcplib.Description("Conversation ID")),
 			mcplib.WithString("ts", mcplib.Required(), mcplib.Description("Parent message timestamp")),
@@ -107,7 +107,7 @@ func RegisterTools(s *server.MCPServer) {
 		makeAPIHandler("GET", "/conversations.replies", true, false, nil, mcpPageConfig{}, []mcpParamBinding{{PublicName: "channel", WireName: "channel", Location: "query"}, {PublicName: "ts", WireName: "ts", Location: "query"}, {PublicName: "limit", WireName: "limit", Location: "query", Default: "100"}, {PublicName: "cursor", WireName: "cursor", Location: "query"}}, []string{"channel", "ts"}),
 	)
 	s.AddTool(
-		mcplib.NewTool("messages_search",
+		slackCollectionTool("messages_search", "/search.messages",
 			mcplib.WithDescription("Full-text search messages (live API). Required: query. Optional: count (default: 20), page (default: 1), sort (default: score) (plus 1 more). Returns the SearchResult."),
 			mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search query")),
 			mcplib.WithNumber("count", mcplib.Description("Results per page (<=100)")),
@@ -139,7 +139,7 @@ func RegisterTools(s *server.MCPServer) {
 		makeAPIHandler("GET", "/users.info", true, false, nil, mcpPageConfig{}, []mcpParamBinding{{PublicName: "user", WireName: "user", Location: "query"}}, []string{"user"}),
 	)
 	s.AddTool(
-		mcplib.NewTool("users_list",
+		slackCollectionTool("users_list", "/users.list",
 			mcplib.WithDescription("List workspace users (paginate slowly to avoid token invalidation). Optional: limit (default: 200), cursor. Returns array of User."),
 			mcplib.WithNumber("limit", mcplib.Description("Max users per page")),
 			mcplib.WithString("cursor", mcplib.Description("Pagination cursor")),
@@ -152,9 +152,15 @@ func RegisterTools(s *server.MCPServer) {
 	// Search tool — faster than iterating list endpoints for finding specific items
 	s.AddTool(
 		mcplib.NewTool("search",
-			mcplib.WithDescription("Full-text search across all synced data. Faster than paginating list endpoints. Requires sync first."),
+			mcplib.WithDescription("Search verified canonical messages with local FTS and conversation, thread and timestamp filters. Requires message sync first."),
 			mcplib.WithString("query", mcplib.Required(), mcplib.Description("Search query (supports FTS5 syntax: AND, OR, NOT, quotes for phrases)")),
 			mcplib.WithNumber("limit", mcplib.Description("Max results (default 25)")),
+			mcplib.WithString("channel", mcplib.Description("Conversation ID filter")),
+			mcplib.WithString("ts", mcplib.Description("Thread root timestamp filter")),
+			mcplib.WithString("oldest", mcplib.Description("Exclusive lower timestamp")),
+			mcplib.WithString("latest", mcplib.Description("Exclusive upper timestamp")),
+			mcplib.WithBoolean("inclusive", mcplib.Description("Include timestamp bounds")),
+			mcplib.WithString("cursor", mcplib.Description("Scope-bound local continuation")),
 			mcplib.WithReadOnlyHintAnnotation(true),
 			mcplib.WithDestructiveHintAnnotation(false),
 		),
@@ -247,6 +253,9 @@ func makeAPIHandler(method, pathTemplate string, readOnly bool, binaryResponse b
 		// non-map payloads; GetArguments() returns the map[string]any shape
 		// we rely on here (or an empty map when the payload is something else).
 		args := req.GetArguments()
+		if method == "GET" && slackmirror.Supported(pathTemplate) {
+			return handleSlackCollection(ctx, c, pathTemplate, bindings, args)
+		}
 
 		// positionalParams mixes real URL path params with CLI positional
 		// args that map to query params (e.g. `search <query>` -> ?query=);
@@ -454,6 +463,7 @@ func newMCPConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
 	}
+	config.ApplyAccount(cfg, "")
 	return cfg, nil
 }
 
@@ -469,11 +479,11 @@ func newMCPClientFromConfig(cfg *config.Config) *client.Client {
 }
 
 func mcpDBPath() (string, error) {
-	dir, err := cliutil.DataDir()
-	if err != nil {
-		return "", err
+	path := cli.ActiveSlackMirrorPath()
+	if path == "" {
+		return "", fmt.Errorf("resolving active account mirror")
 	}
-	return filepath.Join(dir, "data.db"), nil
+	return path, nil
 }
 
 type mcpStoreStatusKind string
@@ -538,8 +548,19 @@ func handleSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 	}
 	defer db.Close()
 
-	results, err := db.Search(query, limit)
+	params := map[string]string{"query": query, "limit": strconv.Itoa(limit)}
+	for _, key := range []string{"channel", "oldest", "latest", "ts", "cursor", "inclusive"} {
+		if v, ok := args[key]; ok {
+			params[key] = formatMCPParamValue(v)
+		}
+	}
+	result, err := slackmirror.Local(ctx, db, "/local.search", params, false)
 	if err != nil {
+		if _, idErr := db.SlackIdentity(); idErr != nil {
+			envelope := mcpSearchEnvelope(nil, mcpStoreStatusEmpty)
+			envelope["meta"] = map[string]any{"source": "local", "coverage": db.SlackCoverage("missing")}
+			return toolResultJSON(envelope)
+		}
 		return mcplib.NewToolResultError(fmt.Sprintf("search failed: %v", err)), nil
 	}
 	storeStatus, err := mcpStoreStatus(db)
@@ -547,7 +568,17 @@ func handleSearch(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.Call
 		return mcplib.NewToolResultError(fmt.Sprintf("reading store status: %v", err)), nil
 	}
 
-	return toolResultJSON(mcpSearchEnvelope(results, storeStatus))
+	envelope := mcpSearchEnvelope(result.Items, storeStatus)
+	envelope["meta"] = map[string]any{"source": "local", "coverage": result.Coverage, "has_more": result.HasMore, "next_cursor": result.NextCursor, "workspace_id": result.WorkspaceID}
+	envelope["resumable"] = result.HasMore
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		return mcplib.NewToolResultError(err.Error()), nil
+	}
+	if len(data) > bound.MaxBytes {
+		return mcplib.NewToolResultError("search result exceeds MCP output budget; use a smaller limit"), nil
+	}
+	return mcplib.NewToolResultText(string(data)), nil
 }
 
 func mcpSearchEnvelope(results []json.RawMessage, storeStatus mcpStoreStatusKind) map[string]any {

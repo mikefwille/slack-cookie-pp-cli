@@ -24,10 +24,22 @@ func seedWork(t *testing.T, items []json.RawMessage) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, fails, err := s.UpsertBatch("conversations-conversations-history", items)
+	id := store.SlackIdentity{WorkspaceID: "T_FIXTURE", UserID: "UME"}
+	if err = s.BindSlackIdentity(id); err != nil {
+		t.Fatal(err)
+	}
+	for i, raw := range items {
+		var obj map[string]any
+		_ = json.Unmarshal(raw, &obj)
+		if extractMessageChannel(obj) == "" {
+			obj["channel"] = "C_FIXTURE"
+		}
+		items[i], _ = json.Marshal(obj)
+	}
+	err = s.CommitSlackPage(t.Context(), id, "", "/conversations.history", "", items, store.SlackScan{})
 	_ = s.Close()
-	if err != nil || fails != 0 || stored != len(items) {
-		t.Fatalf("seed UpsertBatch stored=%d fails=%d err=%v (want %d/0)", stored, fails, err, len(items))
+	if err != nil {
+		t.Fatalf("seed verified canonical messages: %v", err)
 	}
 }
 
@@ -76,7 +88,7 @@ func TestSQLCommandQueriesMirror(t *testing.T) {
 		msg(map[string]any{"ts": tsFor(now), "text": "a", "user": "U1"}),
 		msg(map[string]any{"ts": tsFor(now.Add(-time.Hour)), "text": "b", "user": "U2"}),
 	})
-	out, _, err := runCLI(t, "", "sql", "SELECT count(*) AS n FROM resources", "--json")
+	out, _, err := runCLI(t, "", "sql", "SELECT count(*) AS n FROM slack_messages", "--json")
 	if err != nil {
 		t.Fatalf("sql: %v", err)
 	}
@@ -203,5 +215,48 @@ func TestOfflineMissingMirrorIsNotAnError(t *testing.T) {
 	}
 	if !strings.Contains(out, "no local mirror") {
 		t.Errorf("expected missing-mirror hint, got: %s", out)
+	}
+}
+
+func TestSlackOfflineReportsAndSearchExcludeLegacyAndRecognizeGroupDM(t *testing.T) {
+	isolateAuthHome(t)
+	seedWork(t, []json.RawMessage{msg(map[string]any{"ts": tsFor(time.Now().Add(-time.Hour)), "channel": "GROUP", "text": "verified needle", "user": "U2"})})
+	s, err := store.Open(accountDBPath("work"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := s.SlackIdentity()
+	if err = s.CommitSlackDirectoryPage(t.Context(), id, "conversations", "", []json.RawMessage{msg(map[string]any{"id": "GROUP", "is_mpim": true})}, store.SlackScan{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = s.UpsertBatch("messages", []json.RawMessage{msg(map[string]any{"ts": tsFor(time.Now()), "text": "ambiguous needle", "user": "U3"})}); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	for _, args := range [][]string{{"digest", "--since", "1d"}, {"missed", "--since", "1d"}, {"trends", "--weeks", "1"}, {"stale-threads", "--days", "1"}, {"search", "needle"}} {
+		args = append(args, "--data-source", "local", "--json")
+		out, _, err := runCLI(t, "", args...)
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if strings.Contains(out, "ambiguous needle") {
+			t.Fatalf("legacy leaked through %v: %s", args, out)
+		}
+		if !strings.Contains(out, "legacy_identity_unverified") {
+			t.Fatalf("legacy exclusion hidden %v: %s", args, out)
+		}
+		if args[0] == "missed" && !strings.Contains(out, "verified needle") {
+			t.Fatalf("group DM missing: %s", out)
+		}
+	}
+	if err = config.SaveAccount("missing", config.Account{Workspace: "other", Xoxc: "x", DCookie: "d"}, false); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := runCLI(t, "", "digest", "--all-accounts", "--since", "1d", "--data-source", "local", "--json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"state": "partial"`) || !strings.Contains(out, "mirror_unavailable") {
+		t.Fatalf("cross-account gap hidden: %s", out)
 	}
 }
