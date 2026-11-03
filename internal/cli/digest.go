@@ -61,7 +61,7 @@ func newDigestCmd(flags *rootFlags) *cobra.Command {
 						channels[msg.Channel] = struct{}{}
 					}
 					if msg.ThreadTS != "" {
-						threads[msg.ThreadTS] = struct{}{}
+						threads[msg.WorkspaceID+"/"+msg.Channel+"/"+msg.ThreadTS] = struct{}{}
 					}
 				}
 				sections = append(sections, section{
@@ -71,9 +71,10 @@ func newDigestCmd(flags *rootFlags) *cobra.Command {
 			}
 
 			if flags.asJSON {
-				return printJSONFiltered(cmd.OutOrStdout(), map[string]any{"since": since, "accounts": sections}, flags)
+				return printJSONFiltered(cmd.OutOrStdout(), map[string]any{"since": since, "accounts": sections, "coverage": mirrorCoverage(mirrors)}, flags)
 			}
 			w := cmd.OutOrStdout()
+			printMirrorCoverage(cmd.ErrOrStderr(), mirrors)
 			for _, s := range sections {
 				if s.Missing {
 					fmt.Fprintf(w, "[%s] %s\n", s.Account, s.Hint)

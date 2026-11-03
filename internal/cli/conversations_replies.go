@@ -14,6 +14,9 @@ import (
 func newConversationsRepliesCmd(flags *rootFlags) *cobra.Command {
 	var flagLimit int
 	var flagCursor string
+	var flagAll bool
+	var flagOldest, flagLatest string
+	var flagInclusive bool
 
 	cmd := &cobra.Command{
 		Use:   "replies <channel> <ts>",
@@ -42,15 +45,20 @@ func newConversationsRepliesCmd(flags *rootFlags) *cobra.Command {
 			if flagCursor != "" {
 				params["cursor"] = formatCLIParamValue(flagCursor)
 			}
+			params["oldest"] = flagOldest
+			params["latest"] = flagLatest
+			params["inclusive"] = formatCLIParamValue(flagInclusive)
 			// Hand-authored (recorded under .printing-press-patches/): cache thread
 			// replies under their own ts-keyed resource type, not "conversations".
 			// See conversations_history.go and internal/store/slackcookie_overrides.go.
-			data, prov, err := resolveReadWithStrategyAndResponsePath(cmd.Context(), c, flags, "auto", "conversations-conversations-replies", false, path, params, nil, "messages", cmd.ErrOrStderr())
+			data, prov, err := resolvePaginatedReadWithStrategy(cmd.Context(), c, flags, "auto", "conversations-conversations-replies", path, params, nil, flagAll, "cursor", "cursor", "limit", "response_metadata.next_cursor", "has_more", cmd.ErrOrStderr())
 			if err != nil {
 				return classifyAPIError(err, flags)
 			}
 			// Honor --limit when the API accepts but ignores ?limit=N.
-			data = truncateJSONArray(data, flagLimit)
+			if c.DryRun {
+				data = truncateJSONArray(data, flagLimit)
+			}
 			// Print provenance to stderr for human-facing output only.
 			// Machine-format flags (--json, --csv, --compact, --quiet, --plain,
 			// --select) and piped stdout suppress this line; the JSON envelope
@@ -97,6 +105,10 @@ func newConversationsRepliesCmd(flags *rootFlags) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&flagLimit, "limit", 100, "Max replies per page")
 	cmd.Flags().StringVar(&flagCursor, "cursor", "", "Pagination cursor")
+	cmd.Flags().BoolVar(&flagAll, "all", false, "Fetch all scoped pages")
+	cmd.Flags().StringVar(&flagOldest, "oldest", "", "Only messages after this exact Slack timestamp")
+	cmd.Flags().StringVar(&flagLatest, "latest", "", "Only messages before this exact Slack timestamp")
+	cmd.Flags().BoolVar(&flagInclusive, "inclusive", false, "Include messages equal to the timestamp bounds")
 
 	return cmd
 }

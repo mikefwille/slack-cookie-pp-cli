@@ -50,7 +50,7 @@ func IsUUID(s string) bool {
 // It is stamped into SQLite's PRAGMA user_version on fresh databases and
 // checked on every open. Non-learn CLIs advance to v4 for the
 // resources_fts content extraction.
-const StoreSchemaVersion = 4
+const StoreSchemaVersion = 5
 
 // resourcesFTSContentSchemaVersion pins the schema bump that rewrote
 // resources_fts content from raw JSON to searchable leaf values. Keep this
@@ -120,7 +120,15 @@ func OpenReadOnlyContext(ctx context.Context, dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("opening database (read-only): %w", err)
 	}
 	db.SetMaxOpenConns(2)
-	return &Store{db: db, path: dbPath}, nil
+	s := &Store{db: db, path: dbPath}
+	if v, err := s.SchemaVersion(); err != nil || v > StoreSchemaVersion {
+		db.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("database schema version %d is newer than supported version %d", v, StoreSchemaVersion)
+	}
+	return s, nil
 }
 
 // OpenWithContext opens or creates the SQLite store at dbPath. The
@@ -157,6 +165,10 @@ func OpenWithContext(ctx context.Context, dbPath string) (*Store, error) {
 	db.SetMaxOpenConns(2)
 
 	s := &Store{db: db, path: dbPath}
+	if err := retryOnBusy(ctx, time.Now().Add(migrationLockTimeout), "preparing legacy Slack backup", func() error { return s.prepareSlackBackup(ctx) }); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("preparing legacy Slack backup: %w", err)
+	}
 	if err := s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("running migrations: %w", err)
@@ -489,6 +501,9 @@ func (s *Store) migrate(ctx context.Context) error {
 		}
 		if err := s.migrateExtras(ctx, conn); err != nil {
 			return fmt.Errorf("running extra migrations: %w", err)
+		}
+		if err := s.migrateSlack(ctx, conn); err != nil {
+			return fmt.Errorf("migrating Slack mirror: %w", err)
 		}
 		if current < resourcesFTSContentSchemaVersion {
 			if err := s.migrateResourcesFTSContent(ctx, conn); err != nil {
